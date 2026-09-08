@@ -20,7 +20,7 @@ def listar_produtos():
         for produto, dados in produtos_ordenados.items():
             print(
                 f"{produto}: Quantidade disponível - {dados['quantidade']} |"
-                "Preço - {dados['preco']}"
+                f"Preço - {dados['preco']}"
                 )
 
 
