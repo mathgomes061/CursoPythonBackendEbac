@@ -17,6 +17,7 @@ from sqlalchemy.orm import (
     Mapped,
     mapped_column
 )
+from sqlalchemy.exc import SQLAlchemyError
 
 DATABASE_URL = "sqlite:///./tarefas.db"
 
@@ -57,6 +58,23 @@ class Tarefa(BaseModel):
     concluida: bool = False
 
 
+class TarefaResponse(BaseModel):
+    nome_tarefa: str
+    descricao_tarefa: str
+    tarefa_concluida: bool
+
+
+class ListaTarefaResponse(BaseModel):
+    page: int
+    size: int
+    total: int
+    tarefas: list[TarefaResponse]
+
+
+class MensagemResponse(BaseModel):
+    mensagem: str
+
+
 Base.metadata.create_all(bind=engine)
 
 
@@ -84,7 +102,7 @@ def autenticar_usuario(credentials: HTTPBasicCredentials = Depends(security)):
         )
 
 
-@app.post("/adicionar")
+@app.post("/adicionar", response_model=MensagemResponse)
 def post_tarefa(
     tarefa: Tarefa,
     db: Session = Depends(get_session_db),
@@ -107,17 +125,23 @@ def post_tarefa(
         descricao=tarefa.descricao,
         concluida=tarefa.concluida
     )
-
-    db.add(nova_tarefa)
-    db.commit()
-    db.refresh(nova_tarefa)
+    try:
+        db.add(nova_tarefa)
+        db.commit()
+        db.refresh(nova_tarefa)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao salvar a tarefa no banco de dados."
+        )
 
     return {
         "mensagem": "Tarefa adicionada com sucesso.",
     }
 
 
-@app.get("/tarefas")
+@app.get("/tarefas", response_model=ListaTarefaResponse)
 def get_tarefas(
     page: int = 1,
     size: int = 10,
@@ -151,15 +175,24 @@ def get_tarefas(
         .limit(size)
     )
 
-    tarefas = db.scalars(stmt).all()
+    try:
+        tarefas = db.scalars(stmt).all()
 
-    total_tarefas = db.scalar(
-        select(func.count()).select_from(TarefaBD)
-    )
+        total_tarefas = db.scalar(
+            select(func.count()).select_from(TarefaBD)
+        )
+    except SQLAlchemyError:
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao consultar banco de dados."
+        )
 
     if not tarefas:
         return {
-            "mensagem": "Não há tarefas na lista."
+            "page": page,
+            "size": size,
+            "total": 0,
+            "tarefas": []
         }
 
     return {
@@ -177,7 +210,7 @@ def get_tarefas(
     }
 
 
-@app.put("/atualizar/{nome}")
+@app.put("/atualizar/{nome}", response_model=MensagemResponse)
 def put_tarefa(
     nome: str,
     db: Session = Depends(get_session_db),
@@ -193,16 +226,23 @@ def put_tarefa(
             detail="Tarefa não encontrada."
         )
 
-    db_tarefa.concluida = True
-    db.commit()
-    db.refresh(db_tarefa)
+    try:
+        db_tarefa.concluida = True
+        db.commit()
+        db.refresh(db_tarefa)
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao atualizar a tarefa no banco de dados."
+        )
 
     return {
         "mensagem": f"Tarefa '{db_tarefa.nome}' atualizada com sucesso!"
     }
 
 
-@app.delete("/deletar/{nome}")
+@app.delete("/deletar/{nome}", response_model=MensagemResponse)
 def delete_tarefa(
     nome: str,
     db: Session = Depends(get_session_db),
@@ -218,9 +258,18 @@ def delete_tarefa(
                 detail="Tarefa não encontrada na lista."
             )
 
-    db.delete(db_tarefa)
-    db.commit()
+    nome_tarefa = db_tarefa.nome
+
+    try:
+        db.delete(db_tarefa)
+        db.commit()
+    except SQLAlchemyError:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail="Erro ao deletar a tarefa no banco de dados."
+        )
 
     return {
-        "mensagem": f"Tarefa '{db_tarefa.nome}' deletada com sucesso!"
+        "mensagem": f"Tarefa '{nome_tarefa}' deletada com sucesso!"
     }
