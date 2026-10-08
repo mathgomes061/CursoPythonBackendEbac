@@ -58,6 +58,10 @@ class Tarefa(BaseModel):
     concluida: bool = False
 
 
+class TarefaAtualizacao(BaseModel):
+    concluida: bool
+
+
 class TarefaResponse(BaseModel):
     nome_tarefa: str
     descricao_tarefa: str
@@ -108,27 +112,32 @@ def post_tarefa(
     db: Session = Depends(get_session_db),
     credentials: HTTPBasicCredentials = Depends(autenticar_usuario)
 ):
-    stmt = select(TarefaBD).where(
-        TarefaBD.nome == tarefa.nome
-    )
-
-    db_tarefa = db.scalars(stmt).first()
-
-    if db_tarefa:
-        raise HTTPException(
-                status_code=400,
-                detail="Tarefa já existe na lista."
-            )
-
-    nova_tarefa = TarefaBD(
-        nome=tarefa.nome,
-        descricao=tarefa.descricao,
-        concluida=tarefa.concluida
-    )
     try:
+        stmt = select(TarefaBD).where(
+            TarefaBD.nome == tarefa.nome
+        )
+
+        db_tarefa = db.scalars(stmt).first()
+
+        if db_tarefa:
+            raise HTTPException(
+                    status_code=400,
+                    detail="Tarefa já existe na lista."
+                )
+
+        nova_tarefa = TarefaBD(
+            nome=tarefa.nome,
+            descricao=tarefa.descricao,
+            concluida=tarefa.concluida
+        )
+
         db.add(nova_tarefa)
         db.commit()
         db.refresh(nova_tarefa)
+
+    except HTTPException:
+        raise
+
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(
@@ -213,23 +222,28 @@ def get_tarefas(
 @app.put("/atualizar/{nome}", response_model=MensagemResponse)
 def put_tarefa(
     nome: str,
+    atualizacao: TarefaAtualizacao,
     db: Session = Depends(get_session_db),
     credentials: HTTPBasicCredentials = Depends(autenticar_usuario)
 ):
-    stmt = select(TarefaBD).where(TarefaBD.nome == nome)
-
-    db_tarefa = db.scalars(stmt).first()
-
-    if not db_tarefa:
-        raise HTTPException(
-            status_code=404,
-            detail="Tarefa não encontrada."
-        )
-
     try:
-        db_tarefa.concluida = True
+        stmt = select(TarefaBD).where(TarefaBD.nome == nome)
+
+        db_tarefa = db.scalars(stmt).first()
+
+        if not db_tarefa:
+            raise HTTPException(
+                status_code=404,
+                detail="Tarefa não encontrada."
+            )
+
+        db_tarefa.concluida = atualizacao.concluida
         db.commit()
         db.refresh(db_tarefa)
+
+    except HTTPException:
+        raise
+
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(
@@ -248,21 +262,25 @@ def delete_tarefa(
     db: Session = Depends(get_session_db),
     credentials: HTTPBasicCredentials = Depends(autenticar_usuario)
 ):
-    stmt = select(TarefaBD).where(TarefaBD.nome == nome)
-
-    db_tarefa = db.scalars(stmt).first()
-
-    if not db_tarefa:
-        raise HTTPException(
-                status_code=404,
-                detail="Tarefa não encontrada na lista."
-            )
-
-    nome_tarefa = db_tarefa.nome
-
     try:
+        stmt = select(TarefaBD).where(TarefaBD.nome == nome)
+
+        db_tarefa = db.scalars(stmt).first()
+
+        if not db_tarefa:
+            raise HTTPException(
+                    status_code=404,
+                    detail="Tarefa não encontrada na lista."
+                )
+
+        nome_tarefa = db_tarefa.nome
+
         db.delete(db_tarefa)
         db.commit()
+
+    except HTTPException:
+        raise
+
     except SQLAlchemyError:
         db.rollback()
         raise HTTPException(
